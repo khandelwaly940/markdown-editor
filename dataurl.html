@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Markdown Notes</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui;
+      background: #0f1117;
+      color: #e6edf3;
+    }
+
+    .app {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 220px;
+      border-right: 1px solid #30363d;
+      padding: 10px;
+      overflow-y: auto;
+      transition: width 0.2s;
+    }
+
+    .sidebar.collapsed {
+      width: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .note {
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .note:hover {
+      background: #21262d;
+    }
+
+    .active {
+      background: #30363d;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 10px;
+    }
+
+    .split {
+      display: flex;
+      flex: 1;
+      gap: 10px;
+    }
+
+    .editor, .preview {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #30363d;
+      background: #161b22;
+      overflow-y: auto;
+      border-radius: 8px;
+    }
+
+    .editor { outline: none; }
+
+    .preview img {
+      max-width: 100%;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+<div class="app">
+
+  <div id="sidebar" class="sidebar collapsed">
+    <button onclick="createNote()">+ New</button>
+    <div id="notesList"></div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <button onclick="toggleSidebar()">☰</button>
+        <button onclick="clearNote()">Clear</button>
+      </div>
+
+      <span id="noteTitle">Note</span>
+
+      <div>
+        <button onclick="toggleEditor()">Hide Editor</button>
+        <button onclick="deleteNote()">Delete</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div id="editor" class="editor" contenteditable="true"></div>
+      <div id="preview" class="preview"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+marked.setOptions({ breaks: true, gfm: true });
+
+let currentNote = null;
+
+// ---------- STORAGE ----------
+function getNotes() {
+  return JSON.parse(localStorage.getItem("notes") || "{}");
+}
+
+function saveNotes(notes) {
+  localStorage.setItem("notes", JSON.stringify(notes));
+}
+
+function saveUIState(state) {
+  sessionStorage.setItem("ui-state", JSON.stringify(state));
+}
+
+function getUIState() {
+  return JSON.parse(sessionStorage.getItem("ui-state") || "{}");
+}
+
+// ---------- NOTES ----------
+function createNote(name = "Untitled") {
+  const notes = getNotes();
+  const id = "note-" + Date.now();
+
+  notes[id] = { title: name, content: "", images: {} };
+
+  saveNotes(notes);
+  loadNotes();
+  openNote(id);
+}
+
+function deleteNote() {
+  if (!currentNote) return;
+
+  const notes = getNotes();
+  delete notes[currentNote];
+  saveNotes(notes);
+
+  const remaining = Object.keys(notes);
+  if (remaining.length) openNote(remaining[0]);
+  else createNote();
+}
+
+function clearNote() {
+  if (!currentNote) return;
+
+  const notes = getNotes();
+  notes[currentNote] = { title: notes[currentNote].title, content: "", images: {} };
+
+  saveNotes(notes);
+  editor.innerText = "";
+  preview.innerHTML = "";
+}
+
+function loadNotes() {
+  const notes = getNotes();
+  const list = document.getElementById("notesList");
+
+  list.innerHTML = "";
+
+  Object.entries(notes).forEach(([id, note]) => {
+    const div = document.createElement("div");
+    div.className = "note" + (id === currentNote ? " active" : "");
+    div.innerText = note.title;
+
+    // 🔥 double click rename
+    div.ondblclick = () => {
+      const newName = prompt("Rename note:", note.title);
+      if (newName) {
+        const notes = getNotes();
+        notes[id].title = newName;
+        saveNotes(notes);
+        loadNotes();
+        document.getElementById("noteTitle").innerText = newName;
+      }
+    };
+
+    div.onclick = () => openNote(id);
+    list.appendChild(div);
+  });
+}
+
+function openNote(id) {
+  const notes = getNotes();
+  currentNote = id;
+
+  editor.innerText = notes[id].content || "";
+  document.getElementById("noteTitle").innerText = notes[id].title;
+
+  updatePreview();
+  loadNotes();
+
+  const state = getUIState();
+  state.activeNote = id;
+  saveUIState(state);
+}
+
+// ---------- IMAGE ----------
+function insertImage(base64) {
+  const notes = getNotes();
+  const note = notes[currentNote];
+
+  const id = "img-" + Date.now();
+  note.images[id] = base64;
+
+  saveNotes(notes); // 🔥 FIX: save immediately
+
+  insertAtCursor(`![image](${id})`);
+}
+
+function resolveImages(md) {
+  const notes = getNotes();
+  const images = notes[currentNote]?.images || {};
+
+  return md.replace(/\(img-\d+\)/g, match => {
+    const id = match.slice(1, -1);
+    return images[id] ? `(${images[id]})` : "(missing-image)";
+  });
+}
+
+// ---------- SAVE ----------
+function saveContent() {
+  if (!currentNote) return;
+
+  const notes = getNotes();
+  notes[currentNote].content = editor.innerText;
+  saveNotes(notes);
+}
+
+// ---------- PREVIEW ----------
+function updatePreview() {
+  preview.innerHTML = marked.parse(resolveImages(editor.innerText));
+}
+
+// ---------- CURSOR ----------
+function insertAtCursor(text) {
+  const sel = window.getSelection();
+  const range = sel.getRangeAt(0);
+
+  range.deleteContents();
+  range.insertNode(document.createTextNode(text));
+
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  editor.dispatchEvent(new Event("input"));
+}
+
+// ---------- EVENTS ----------
+editor.addEventListener("input", () => {
+  saveContent();
+  updatePreview();
+});
+
+editor.addEventListener("paste", (e) => {
+  const items = e.clipboardData.items;
+
+  for (let item of items) {
+    if (item.type.startsWith("image")) {
+      e.preventDefault(); // 🔥 IMPORTANT
+      const file = item.getAsFile();
+      const reader = new FileReader();
+
+      reader.onload = (event) => insertImage(event.target.result);
+      reader.readAsDataURL(file);
+    }
+  }
+});
+
+// delete image
+preview.addEventListener("contextmenu", (e) => {
+  if (e.target.tagName === "IMG") {
+    e.preventDefault();
+
+    const notes = getNotes();
+    const images = notes[currentNote].images;
+    const src = e.target.src;
+
+    for (let id in images) {
+      if (images[id] === src) {
+        delete images[id];
+        editor.innerText = editor.innerText.replace(`(${id})`, "(deleted)");
+        saveNotes(notes);
+        updatePreview();
+        break;
+      }
+    }
+  }
+});
+
+// ---------- UI ----------
+function toggleSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  sidebar.classList.toggle("collapsed");
+
+  const state = getUIState();
+  state.sidebarCollapsed = sidebar.classList.contains("collapsed");
+  saveUIState(state);
+}
+
+function toggleEditor() {
+  const ed = document.getElementById("editor");
+  ed.style.display = ed.style.display === "none" ? "block" : "none";
+}
+
+function saveCursor() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+
+  const range = sel.getRangeAt(0);
+  const pos = range.startOffset;
+
+  const state = getUIState();
+  state.cursorPos = pos;
+  saveUIState(state);
+}
+editor.addEventListener("keyup", saveCursor);
+editor.addEventListener("click", saveCursor);
+
+function restoreCursor() {
+  const state = getUIState();
+  if (!state.cursorPos) return;
+
+  const range = document.createRange();
+  const sel = window.getSelection();
+
+  if (!editor.firstChild) return;
+
+  range.setStart(editor.firstChild, Math.min(state.cursorPos, editor.innerText.length));
+  range.collapse(true);
+
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+// ---------- INIT ----------
+function init() {
+  const notes = getNotes();
+  const state = getUIState();
+
+  // sidebar state
+  if (state.sidebarCollapsed !== false) {
+    document.getElementById("sidebar").classList.add("collapsed");
+  }
+
+  // open correct note
+  if (state.activeNote && notes[state.activeNote]) {
+    openNote(state.activeNote);
+  } else if (Object.keys(notes).length === 0) {
+    createNote("First Note");
+  } else {
+    openNote(Object.keys(notes)[0]);
+  }
+
+  loadNotes();
+
+  // restore cursor after render
+  setTimeout(restoreCursor, 0);
+}
+
+init();
+</script>
+
+</body>
+</html>
