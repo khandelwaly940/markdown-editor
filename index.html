@@ -1,166 +1,611 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A clean, offline-first Markdown editor with live preview, multi-note management, and image support." />
   <title>Markdown Notes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <style>
-    body {
-      margin: 0;
-      font-family: system-ui;
-      background: #0f1117;
-      color: #e6edf3;
+    /* ── Design Tokens ────────────────────────────────────────── */
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2128;
+      --border:    #30363d;
+      --border2:   #21262d;
+      --text:      #e6edf3;
+      --text-muted:#8b949e;
+      --accent:    #58a6ff;
+      --accent-dim:#1f6feb33;
+      --danger:    #f85149;
+      --success:   #3fb950;
+
+      --font-ui:   'Inter', system-ui, sans-serif;
+      --font-code: 'JetBrains Mono', monospace;
+
+      --radius-sm: 4px;
+      --radius:    6px;
+      --radius-lg: 10px;
+
+      --sidebar-w: 220px;
+      --topbar-h:  44px;
+      --statusbar-h: 26px;
     }
 
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    /* ── Scrollbar ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Layout ───────────────────────────────────────────────── */
     .app {
       display: flex;
       height: 100vh;
-    }
-
-    .sidebar {
-      width: 220px;
-      border-right: 1px solid #30363d;
-      padding: 10px;
-      overflow-y: auto;
-      transition: width 0.2s;
-    }
-
-    .sidebar.collapsed {
-      width: 0;
-      padding: 0;
       overflow: hidden;
     }
 
-    .note {
-      padding: 8px;
+    /* ── Sidebar ──────────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      max-width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: margin-left 0.2s ease;
+      overflow: hidden;
+    }
+
+    .sidebar.hidden {
+      margin-left: calc(-1 * var(--sidebar-w));
+    }
+
+    .sidebar-header {
+      padding: 10px 10px 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sidebar-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    #notesList {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+    }
+
+    .note-item {
+      padding: 7px 10px;
+      border-radius: var(--radius);
       cursor: pointer;
-      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.12s;
+      user-select: none;
     }
 
-    .note:hover {
-      background: #21262d;
-    }
+    .note-item:hover  { background: var(--border2); }
+    .note-item.active { background: var(--border); }
 
-    .active {
-      background: #30363d;
-    }
-
+    /* ── Main area ────────────────────────────────────────────── */
     .main {
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 10px;
+      overflow: hidden;
+      min-width: 0;
     }
 
+    /* ── Topbar ───────────────────────────────────────────────── */
     .topbar {
+      height: var(--topbar-h);
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      gap: 10px;
+      gap: 6px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
     }
 
+    .topbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+    .topbar-spacer { flex: 1; }
+
+    /* Note title */
+    #noteTitle {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: text;
+      outline: none;
+      min-width: 80px;
+      max-width: 260px;
+      text-align: center;
+    }
+    #noteTitle:hover { border-color: var(--border); }
+    #noteTitle:focus { border-color: var(--accent); background: var(--surface2); }
+
+    /* ── Formatting Toolbar ───────────────────────────────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    /* ── Buttons (shared) ─────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1;
+      white-space: nowrap;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .btn:hover { background: var(--border2); color: var(--text); }
+    .btn.active { background: var(--accent-dim); color: var(--accent); border-color: transparent; }
+    .btn.icon { padding: 4px 6px; font-size: 13px; }
+    .btn.danger:hover { color: var(--danger); }
+
+    .btn-group { display: flex; align-items: center; gap: 1px; }
+    .toolbar-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+
+    /* ── Split pane ───────────────────────────────────────────── */
     .split {
       display: flex;
       flex: 1;
-      gap: 10px;
+      overflow: hidden;
+      min-height: 0;
     }
 
-    .editor, .preview {
+    .pane {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .pane-header {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      gap: 8px;
+    }
+
+    .pane-label { flex: 1; }
+
+    /* ── Editor pane ──────────────────────────────────────────── */
+    #editorPane { flex: 1; }
+
+    #editor {
       flex: 1;
-      padding: 10px;
-      border: 1px solid #30363d;
-      background: #161b22;
+      width: 100%;
+      height: 100%;
+      background: var(--surface);
+      color: var(--text);
+      border: none;
+      outline: none;
+      resize: none;
+      padding: 16px 20px;
+      font-family: var(--font-code);
+      font-size: 13.5px;
+      line-height: 1.7;
+      tab-size: 2;
       overflow-y: auto;
-      border-radius: 8px;
     }
 
-    .editor { outline: none; }
+    /* ── Resize handle ────────────────────────────────────────── */
+    .divider {
+      width: 4px;
+      background: var(--border);
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s;
+      position: relative;
+    }
 
-    .preview img {
+    .divider:hover,
+    .divider.dragging { background: var(--accent); }
+
+    /* ── Preview pane ─────────────────────────────────────────── */
+    #previewPane { flex: 1; }
+
+    #preview {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+      background: var(--bg);
+      width: 100%;
+    }
+
+    /* ── Markdown rendered styles ─────────────────────────────── */
+    #preview h1, #preview h2, #preview h3,
+    #preview h4, #preview h5, #preview h6 {
+      color: var(--text);
+      line-height: 1.3;
+      margin-top: 1.4em;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+    }
+    #preview h1 { font-size: 1.75em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+    #preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+    #preview h3 { font-size: 1.15em; }
+    #preview h4 { font-size: 1em; }
+    #preview :first-child { margin-top: 0; }
+
+    #preview p { margin-bottom: 0.9em; line-height: 1.7; }
+
+    #preview a { color: var(--accent); text-decoration: none; }
+    #preview a:hover { text-decoration: underline; }
+
+    #preview ul, #preview ol { margin: 0.5em 0 0.9em 1.4em; }
+    #preview li { margin-bottom: 0.25em; }
+
+    #preview blockquote {
+      border-left: 3px solid var(--border);
+      padding: 4px 14px;
+      margin: 0.8em 0;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    #preview code {
+      font-family: var(--font-code);
+      font-size: 0.88em;
+      background: var(--surface);
+      padding: 2px 5px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+    }
+
+    #preview pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      overflow-x: auto;
+      margin: 0.8em 0;
+    }
+
+    #preview pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.87em;
+      line-height: 1.6;
+    }
+
+    #preview table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8em 0;
+      font-size: 0.92em;
+    }
+    #preview th, #preview td {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    #preview th { background: var(--surface); font-weight: 600; }
+    #preview tr:nth-child(even) td { background: var(--surface2); }
+
+    #preview hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1.4em 0;
+    }
+
+    #preview img {
       max-width: 100%;
-      border-radius: 6px;
-      cursor: pointer;
+      border-radius: var(--radius);
+      display: block;
+      margin: 0.8em 0;
+      cursor: zoom-in;
+      transition: opacity 0.15s;
+    }
+    #preview img:hover { opacity: 0.9; }
+
+    /* ── Status bar ───────────────────────────────────────────── */
+    .statusbar {
+      height: var(--statusbar-h);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 11px;
+      color: var(--text-muted);
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .statusbar-spacer { flex: 1; }
+
+    /* ── Image lightbox ───────────────────────────────────────── */
+    #lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
     }
 
-    button {
-      background: #21262d;
-      border: 1px solid #30363d;
-      color: white;
-      padding: 5px 10px;
-      border-radius: 6px;
-      cursor: pointer;
+    /* ── Image context menu ───────────────────────────────────── */
+    #imgMenu {
+      display: none;
+      position: fixed;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 0;
+      z-index: 999;
+      min-width: 140px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
+    #imgMenu.open { display: block; }
+    .img-menu-item {
+      padding: 7px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .img-menu-item:hover { background: var(--border2); }
+    .img-menu-item.danger { color: var(--danger); }
+
+    /* ── Drag-over overlay ────────────────────────────────────── */
+    #editorPane.drag-over::after {
+      content: 'Drop image here';
+      position: absolute;
+      inset: 0;
+      background: rgba(88,166,255,0.1);
+      border: 2px dashed var(--accent);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      color: var(--accent);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #editorPane { position: relative; }
+
+    /* Hidden inputs */
+    #fileInput, #importInput { display: none; }
   </style>
 </head>
 
 <body>
-<div class="app">
+<div class="app" id="app">
 
-  <div id="sidebar" class="sidebar collapsed">
-    <button onclick="createNote()">+ New</button>
+  <!-- ── Sidebar ──────────────────────────────── -->
+  <div id="sidebar" class="sidebar hidden">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Notes</span>
+      <button class="btn icon" onclick="createNote()" title="New note" id="btnNewNote">＋</button>
+    </div>
     <div id="notesList"></div>
   </div>
 
+  <!-- ── Main ─────────────────────────────────── -->
   <div class="main">
+
+    <!-- Top bar -->
     <div class="topbar">
-      <div>
-        <button onclick="toggleSidebar()">☰</button>
-        <button onclick="clearNote()">Clear</button>
+      <button class="btn icon" onclick="toggleSidebar()" title="Toggle sidebar" id="btnSidebar">☰</button>
+      <div class="topbar-sep"></div>
+
+      <input type="text" id="noteTitle" value="Note" spellcheck="false"
+        onchange="renameCurrentNote(this.value)"
+        onkeydown="if(event.key==='Enter')this.blur()" />
+
+      <div class="topbar-spacer"></div>
+
+      <button class="btn" onclick="exportMarkdown()" title="Export as .md" id="btnExport">↓ Export</button>
+      <button class="btn" onclick="document.getElementById('importInput').click()" title="Import .md file" id="btnImport">↑ Import</button>
+      <div class="topbar-sep"></div>
+      <button class="btn danger" onclick="deleteNote()" title="Delete note" id="btnDelete">Delete</button>
+      <input type="file" id="importInput" accept=".md,.txt" onchange="importMarkdown(event)" />
+      <input type="file" id="fileInput" accept="image/*" onchange="handleFileInputImage(event)" />
+    </div>
+
+    <!-- Formatting toolbar -->
+    <div class="toolbar">
+      <div class="btn-group">
+        <button class="btn icon" onclick="fmt('# ')" title="Heading 1" id="fmtH1"><b>H1</b></button>
+        <button class="btn icon" onclick="fmt('## ')" title="Heading 2" id="fmtH2"><b>H2</b></button>
+        <button class="btn icon" onclick="fmt('### ')" title="Heading 3" id="fmtH3"><b>H3</b></button>
       </div>
-
-      <span id="noteTitle">Note</span>
-
-      <div>
-        <button onclick="toggleEditor()">Hide Editor</button>
-        <button onclick="deleteNote()">Delete</button>
+      <div class="toolbar-sep"></div>
+      <div class="btn-group">
+        <button class="btn icon" onclick="wrapSel('**','**')" title="Bold (Ctrl+B)" id="fmtBold"><b>B</b></button>
+        <button class="btn icon" onclick="wrapSel('*','*')" title="Italic (Ctrl+I)" id="fmtItalic"><i>I</i></button>
+        <button class="btn icon" onclick="wrapSel('~~','~~')" title="Strikethrough" id="fmtStrike"><s>S</s></button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <div class="btn-group">
+        <button class="btn icon" onclick="wrapSel('`','`')" title="Inline code" id="fmtCode">&#96;c&#96;</button>
+        <button class="btn icon" onclick="wrapSel('\n```\n','\n```\n')" title="Code block" id="fmtCodeBlock">{ }</button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <div class="btn-group">
+        <button class="btn icon" onclick="fmt('- ')" title="Bullet list" id="fmtUL">• List</button>
+        <button class="btn icon" onclick="fmt('1. ')" title="Numbered list" id="fmtOL">1. List</button>
+        <button class="btn icon" onclick="fmt('> ')" title="Blockquote" id="fmtQuote">" "</button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <div class="btn-group">
+        <button class="btn icon" onclick="insertLink()" title="Insert link" id="fmtLink">🔗</button>
+        <button class="btn icon" onclick="document.getElementById('fileInput').click()" title="Insert image" id="fmtImage">🖼</button>
+        <button class="btn icon" onclick="insertAtCursor('\n---\n')" title="Horizontal rule" id="fmtHR">—</button>
+      </div>
+      <div class="toolbar-spacer" style="flex:1"></div>
+      <div class="btn-group">
+        <button class="btn" id="btnToggleEditor" onclick="togglePane('editor')" title="Hide/Show editor">Editor</button>
+        <button class="btn" id="btnTogglePreview" onclick="togglePane('preview')" title="Hide/Show preview">Preview</button>
       </div>
     </div>
 
-    <div class="split">
-      <div id="editor" class="editor" contenteditable="true"></div>
-      <div id="preview" class="preview"></div>
-    </div>
-  </div>
+    <!-- Split pane -->
+    <div class="split" id="split">
+      <div class="pane" id="editorPane">
+        <div class="pane-header">
+          <span class="pane-label">Editor</span>
+        </div>
+        <textarea id="editor" spellcheck="false" placeholder="Start writing Markdown…"></textarea>
+      </div>
 
+      <div class="divider" id="divider"></div>
+
+      <div class="pane" id="previewPane">
+        <div class="pane-header">
+          <span class="pane-label">Preview</span>
+        </div>
+        <div id="preview"></div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="statusbar">
+      <span id="statWords">0 words</span>
+      <span id="statChars">0 chars</span>
+      <div class="statusbar-spacer"></div>
+      <span id="statSaved">Saved</span>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt="Image preview" />
+</div>
+
+<!-- Image context menu -->
+<div id="imgMenu">
+  <div class="img-menu-item" onclick="imgMenuAction('view')">View full size</div>
+  <div class="img-menu-item danger" onclick="imgMenuAction('delete')">Delete image</div>
 </div>
 
 <script>
+// ================================================================
+//  Config
+// ================================================================
 marked.setOptions({ breaks: true, gfm: true });
 
+// ================================================================
+//  State
+// ================================================================
 let currentNote = null;
+let saveTimer   = null;
+let imgMenuTarget = null; // the IMG element that was right-clicked
 
-// ---------- STORAGE ----------
+// ================================================================
+//  Storage helpers
+// ================================================================
 function getNotes() {
-  return JSON.parse(localStorage.getItem("notes") || "{}");
+  try { return JSON.parse(localStorage.getItem('notes') || '{}'); }
+  catch { return {}; }
 }
 
 function saveNotes(notes) {
-  localStorage.setItem("notes", JSON.stringify(notes));
-}
-
-function saveUIState(state) {
-  sessionStorage.setItem("ui-state", JSON.stringify(state));
+  try { localStorage.setItem('notes', JSON.stringify(notes)); }
+  catch (e) { console.warn('Storage full?', e); }
 }
 
 function getUIState() {
-  return JSON.parse(sessionStorage.getItem("ui-state") || "{}");
+  try { return JSON.parse(sessionStorage.getItem('ui-state') || '{}'); }
+  catch { return {}; }
 }
 
-// ---------- NOTES ----------
-function createNote(name = "Untitled") {
+function saveUIState(patch) {
+  const state = getUIState();
+  Object.assign(state, patch);
+  sessionStorage.setItem('ui-state', JSON.stringify(state));
+}
+
+// ================================================================
+//  Notes CRUD
+// ================================================================
+function createNote(name = 'Untitled') {
   const notes = getNotes();
-  const id = "note-" + Date.now();
-
-  notes[id] = { title: name, content: "", images: {} };
-
+  const id    = 'note-' + Date.now();
+  notes[id]   = { title: name, content: '', images: {} };
   saveNotes(notes);
-  loadNotes();
+  renderNotesList();
   openNote(id);
 }
 
 function deleteNote() {
   if (!currentNote) return;
+  if (!confirm('Delete this note?')) return;
 
   const notes = getNotes();
   delete notes[currentNote];
@@ -168,228 +613,450 @@ function deleteNote() {
 
   const remaining = Object.keys(notes);
   if (remaining.length) openNote(remaining[0]);
-  else createNote();
+  else createNote('Untitled');
 }
 
-function clearNote() {
-  if (!currentNote) return;
-
+function renameCurrentNote(newTitle) {
+  if (!currentNote || !newTitle.trim()) return;
   const notes = getNotes();
-  notes[currentNote] = { title: notes[currentNote].title, content: "", images: {} };
-
+  notes[currentNote].title = newTitle.trim();
   saveNotes(notes);
-  editor.innerText = "";
-  preview.innerHTML = "";
-}
-
-function loadNotes() {
-  const notes = getNotes();
-  const list = document.getElementById("notesList");
-
-  list.innerHTML = "";
-
-  Object.entries(notes).forEach(([id, note]) => {
-    const div = document.createElement("div");
-    div.className = "note" + (id === currentNote ? " active" : "");
-    div.innerText = note.title;
-
-    // 🔥 double click rename
-    div.ondblclick = () => {
-      const newName = prompt("Rename note:", note.title);
-      if (newName) {
-        const notes = getNotes();
-        notes[id].title = newName;
-        saveNotes(notes);
-        loadNotes();
-        document.getElementById("noteTitle").innerText = newName;
-      }
-    };
-
-    div.onclick = () => openNote(id);
-    list.appendChild(div);
-  });
+  renderNotesList();
 }
 
 function openNote(id) {
   const notes = getNotes();
-  currentNote = id;
+  if (!notes[id]) return;
 
-  editor.innerText = notes[id].content || "";
-  document.getElementById("noteTitle").innerText = notes[id].title;
+  currentNote = id;
+  const note  = notes[id];
+
+  document.getElementById('editor').value        = note.content || '';
+  document.getElementById('noteTitle').value      = note.title;
 
   updatePreview();
-  loadNotes();
-
-  const state = getUIState();
-  state.activeNote = id;
-  saveUIState(state);
+  updateStats();
+  renderNotesList();
+  saveUIState({ activeNote: id });
 }
 
-// ---------- IMAGE ----------
-function insertImage(base64) {
+function renderNotesList() {
   const notes = getNotes();
-  const note = notes[currentNote];
+  const list  = document.getElementById('notesList');
+  list.innerHTML = '';
 
-  const id = "img-" + Date.now();
-  note.images[id] = base64;
-
-  saveNotes(notes); // 🔥 FIX: save immediately
-
-  insertAtCursor(`![image](${id})`);
-}
-
-function resolveImages(md) {
-  const notes = getNotes();
-  const images = notes[currentNote]?.images || {};
-
-  return md.replace(/\(img-\d+\)/g, match => {
-    const id = match.slice(1, -1);
-    return images[id] ? `(${images[id]})` : "(missing-image)";
+  Object.entries(notes).forEach(([id, note]) => {
+    const div       = document.createElement('div');
+    div.className   = 'note-item' + (id === currentNote ? ' active' : '');
+    div.textContent = note.title;
+    div.title       = note.title;
+    div.onclick     = () => openNote(id);
+    list.appendChild(div);
   });
 }
 
-// ---------- SAVE ----------
-function saveContent() {
-  if (!currentNote) return;
-
-  const notes = getNotes();
-  notes[currentNote].content = editor.innerText;
-  saveNotes(notes);
+// ================================================================
+//  Content save + preview
+// ================================================================
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setStatus('Saving…');
+  saveTimer = setTimeout(() => {
+    if (!currentNote) return;
+    const notes = getNotes();
+    notes[currentNote].content = document.getElementById('editor').value;
+    saveNotes(notes);
+    setStatus('Saved');
+  }, 400);
 }
 
-// ---------- PREVIEW ----------
 function updatePreview() {
-  preview.innerHTML = marked.parse(resolveImages(editor.innerText));
+  const md = resolveImages(document.getElementById('editor').value);
+  document.getElementById('preview').innerHTML = marked.parse(md);
+  attachPreviewEvents();
 }
 
-// ---------- CURSOR ----------
-function insertAtCursor(text) {
-  const sel = window.getSelection();
-  const range = sel.getRangeAt(0);
-
-  range.deleteContents();
-  range.insertNode(document.createTextNode(text));
-
-  range.collapse(false);
-  sel.removeAllRanges();
-  sel.addRange(range);
-
-  editor.dispatchEvent(new Event("input"));
+function setStatus(msg) {
+  document.getElementById('statSaved').textContent = msg;
 }
 
-// ---------- EVENTS ----------
-editor.addEventListener("input", () => {
-  saveContent();
-  updatePreview();
-});
+function updateStats() {
+  const text  = document.getElementById('editor').value;
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  document.getElementById('statWords').textContent = words + ' word' + (words !== 1 ? 's' : '');
+  document.getElementById('statChars').textContent = text.length + ' char' + (text.length !== 1 ? 's' : '');
+}
 
-editor.addEventListener("paste", (e) => {
-  const items = e.clipboardData.items;
+// ================================================================
+//  Images
+// ================================================================
+function insertImage(base64) {
+  if (!currentNote) return;
+  const notes = getNotes();
+  const note  = notes[currentNote];
+  if (!note.images) note.images = {};
 
-  for (let item of items) {
-    if (item.type.startsWith("image")) {
-      e.preventDefault(); // 🔥 IMPORTANT
-      const file = item.getAsFile();
-      const reader = new FileReader();
+  const id = 'img-' + Date.now();
+  note.images[id] = base64;
+  saveNotes(notes);
 
-      reader.onload = (event) => insertImage(event.target.result);
-      reader.readAsDataURL(file);
+  insertAtCursor(`![image](${id})\n`);
+}
+
+function resolveImages(md) {
+  const notes  = getNotes();
+  const images = notes[currentNote]?.images || {};
+
+  return md.replace(/!\[([^\]]*)\]\((img-\d+)\)/g, (match, alt, id) => {
+    return images[id] ? `![${alt}](${images[id]})` : `![${alt}](data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7)`;
+  });
+}
+
+function deleteImage(imgEl) {
+  const notes  = getNotes();
+  const images = notes[currentNote]?.images;
+  if (!images) return;
+
+  // Find the id from the editor text by matching src
+  const editorVal = document.getElementById('editor').value;
+  let deleted = false;
+  for (const id in images) {
+    if (images[id] === imgEl.src || imgEl.src.startsWith(images[id].slice(0, 40))) {
+      delete images[id];
+      // Remove markdown reference
+      const editor = document.getElementById('editor');
+      editor.value = editor.value.replace(new RegExp(`!\\[[^\\]]*\\]\\(${id}\\)`, 'g'), '');
+      deleted = true;
+      break;
     }
   }
+  if (deleted) {
+    saveNotes(notes);
+    scheduleSave();
+    updatePreview();
+    updateStats();
+  }
+}
+
+function handleFileInputImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => insertImage(ev.target.result);
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+// ================================================================
+//  Preview event attachment
+// ================================================================
+function attachPreviewEvents() {
+  document.querySelectorAll('#preview img').forEach(img => {
+    img.onclick = () => openLightbox(img.src);
+    img.oncontextmenu = e => { e.preventDefault(); showImgMenu(e, img); };
+  });
+}
+
+// ================================================================
+//  Lightbox
+// ================================================================
+function openLightbox(src) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+
+// ================================================================
+//  Image context menu
+// ================================================================
+function showImgMenu(e, img) {
+  imgMenuTarget = img;
+  const menu = document.getElementById('imgMenu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top  = e.clientY + 'px';
+  menu.classList.add('open');
+}
+
+function imgMenuAction(action) {
+  document.getElementById('imgMenu').classList.remove('open');
+  if (!imgMenuTarget) return;
+  if (action === 'view')   openLightbox(imgMenuTarget.src);
+  if (action === 'delete') deleteImage(imgMenuTarget);
+  imgMenuTarget = null;
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('imgMenu').classList.remove('open');
 });
 
-// delete image
-preview.addEventListener("contextmenu", (e) => {
-  if (e.target.tagName === "IMG") {
-    e.preventDefault();
+// ================================================================
+//  Cursor / text insertion
+// ================================================================
+function insertAtCursor(text) {
+  const ta  = document.getElementById('editor');
+  const s   = ta.selectionStart;
+  const e2  = ta.selectionEnd;
+  ta.value  = ta.value.slice(0, s) + text + ta.value.slice(e2);
+  const pos = s + text.length;
+  ta.selectionStart = ta.selectionEnd = pos;
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+
+// Wrap selected text with prefix/suffix
+function wrapSel(pre, suf) {
+  const ta  = document.getElementById('editor');
+  const s   = ta.selectionStart;
+  const e2  = ta.selectionEnd;
+  const sel = ta.value.slice(s, e2);
+
+  // Toggle: if already wrapped, unwrap
+  if (ta.value.slice(s - pre.length, s) === pre &&
+      ta.value.slice(e2, e2 + suf.length) === suf) {
+    ta.value = ta.value.slice(0, s - pre.length) + sel + ta.value.slice(e2 + suf.length);
+    ta.selectionStart = s - pre.length;
+    ta.selectionEnd   = e2 - pre.length;
+  } else {
+    ta.value = ta.value.slice(0, s) + pre + sel + suf + ta.value.slice(e2);
+    ta.selectionStart = s + pre.length;
+    ta.selectionEnd   = e2 + pre.length;
+  }
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+
+// Add prefix to current line
+function fmt(prefix) {
+  const ta  = document.getElementById('editor');
+  const s   = ta.selectionStart;
+  const lineStart = ta.value.lastIndexOf('\n', s - 1) + 1;
+
+  // Toggle: strip if already there
+  if (ta.value.slice(lineStart, lineStart + prefix.length) === prefix) {
+    ta.value = ta.value.slice(0, lineStart) + ta.value.slice(lineStart + prefix.length);
+    ta.selectionStart = ta.selectionEnd = Math.max(lineStart, s - prefix.length);
+  } else {
+    ta.value = ta.value.slice(0, lineStart) + prefix + ta.value.slice(lineStart);
+    ta.selectionStart = ta.selectionEnd = s + prefix.length;
+  }
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+
+function insertLink() {
+  const ta  = document.getElementById('editor');
+  const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+  const url = prompt('URL:', 'https://');
+  if (!url) return;
+  const txt = sel || 'link';
+  const md  = `[${txt}](${url})`;
+  const s   = ta.selectionStart;
+  ta.value  = ta.value.slice(0, s) + md + ta.value.slice(ta.selectionEnd);
+  ta.selectionStart = ta.selectionEnd = s + md.length;
+  ta.focus();
+  ta.dispatchEvent(new Event('input'));
+}
+
+// ================================================================
+//  Export / Import
+// ================================================================
+function exportMarkdown() {
+  const notes = getNotes();
+  if (!currentNote || !notes[currentNote]) return;
+
+  const content  = notes[currentNote].content || '';
+  const title    = notes[currentNote].title || 'note';
+  const filename = title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
+
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importMarkdown(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const name    = file.name.replace(/\.(md|txt)$/i, '');
+    const content = ev.target.result;
 
     const notes = getNotes();
-    const images = notes[currentNote].images;
-    const src = e.target.src;
+    const id    = 'note-' + Date.now();
+    notes[id]   = { title: name, content, images: {} };
+    saveNotes(notes);
+    renderNotesList();
+    openNote(id);
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
 
-    for (let id in images) {
-      if (images[id] === src) {
-        delete images[id];
-        editor.innerText = editor.innerText.replace(`(${id})`, "(deleted)");
-        saveNotes(notes);
-        updatePreview();
-        break;
-      }
+// ================================================================
+//  UI toggles
+// ================================================================
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('hidden');
+  const collapsed = sidebar.classList.contains('hidden');
+  saveUIState({ sidebarCollapsed: collapsed });
+}
+
+// Toggle editor or preview pane visibility
+function togglePane(which) {
+  const ep = document.getElementById('editorPane');
+  const pp = document.getElementById('previewPane');
+  const dv = document.getElementById('divider');
+  const btnE = document.getElementById('btnToggleEditor');
+  const btnP = document.getElementById('btnTogglePreview');
+
+  if (which === 'editor') {
+    const hidden = ep.style.display === 'none';
+    ep.style.display = hidden ? 'flex' : 'none';
+    dv.style.display = (ep.style.display === 'none' || pp.style.display === 'none') ? 'none' : '';
+    btnE.classList.toggle('active', !hidden);
+  } else {
+    const hidden = pp.style.display === 'none';
+    pp.style.display = hidden ? 'flex' : 'none';
+    dv.style.display = (ep.style.display === 'none' || pp.style.display === 'none') ? 'none' : '';
+    btnP.classList.toggle('active', !hidden);
+  }
+}
+
+// ================================================================
+//  Resizable divider
+// ================================================================
+(function initResizer() {
+  const divider = document.getElementById('divider');
+  const split   = document.getElementById('split');
+  const ep      = document.getElementById('editorPane');
+  const pp      = document.getElementById('previewPane');
+
+  let dragging = false;
+
+  divider.addEventListener('mousedown', e => {
+    dragging = true;
+    divider.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const rect  = split.getBoundingClientRect();
+    const total = rect.width - divider.offsetWidth;
+    let ratio   = (e.clientX - rect.left) / total;
+    ratio = Math.max(0.15, Math.min(0.85, ratio));
+
+    ep.style.flex = 'none';
+    pp.style.flex = 'none';
+    ep.style.width = (ratio * total) + 'px';
+    pp.style.width = ((1 - ratio) * total) + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  });
+})();
+
+// ================================================================
+//  Keyboard shortcuts
+// ================================================================
+document.getElementById('editor').addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey;
+
+  if (mod && e.key === 'b') { e.preventDefault(); wrapSel('**', '**'); }
+  if (mod && e.key === 'i') { e.preventDefault(); wrapSel('*', '*'); }
+  if (mod && e.key === 'k') { e.preventDefault(); insertLink(); }
+
+  // Tab → insert 2 spaces
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    insertAtCursor('  ');
+  }
+});
+
+// ================================================================
+//  Editor events
+// ================================================================
+document.getElementById('editor').addEventListener('input', () => {
+  scheduleSave();
+  updatePreview();
+  updateStats();
+});
+
+// Paste images
+document.getElementById('editor').addEventListener('paste', e => {
+  const items = e.clipboardData?.items || [];
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file   = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = ev => insertImage(ev.target.result);
+      reader.readAsDataURL(file);
+      return;
     }
   }
 });
 
-// ---------- UI ----------
-function toggleSidebar() {
-  const sidebar = document.getElementById("sidebar");
-  sidebar.classList.toggle("collapsed");
+// Drag & drop images onto editor pane
+const editorPane = document.getElementById('editorPane');
 
-  const state = getUIState();
-  state.sidebarCollapsed = sidebar.classList.contains("collapsed");
-  saveUIState(state);
-}
+editorPane.addEventListener('dragover', e => {
+  if ([...e.dataTransfer.items].some(i => i.type.startsWith('image/'))) {
+    e.preventDefault();
+    editorPane.classList.add('drag-over');
+  }
+});
+editorPane.addEventListener('dragleave', () => editorPane.classList.remove('drag-over'));
+editorPane.addEventListener('drop', e => {
+  editorPane.classList.remove('drag-over');
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  e.preventDefault();
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => insertImage(ev.target.result);
+    reader.readAsDataURL(file);
+  });
+});
 
-function toggleEditor() {
-  const ed = document.getElementById("editor");
-  ed.style.display = ed.style.display === "none" ? "block" : "none";
-}
-
-function saveCursor() {
-  const sel = window.getSelection();
-  if (!sel.rangeCount) return;
-
-  const range = sel.getRangeAt(0);
-  const pos = range.startOffset;
-
-  const state = getUIState();
-  state.cursorPos = pos;
-  saveUIState(state);
-}
-editor.addEventListener("keyup", saveCursor);
-editor.addEventListener("click", saveCursor);
-
-function restoreCursor() {
-  const state = getUIState();
-  if (!state.cursorPos) return;
-
-  const range = document.createRange();
-  const sel = window.getSelection();
-
-  if (!editor.firstChild) return;
-
-  range.setStart(editor.firstChild, Math.min(state.cursorPos, editor.innerText.length));
-  range.collapse(true);
-
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-// ---------- INIT ----------
+// ================================================================
+//  Init
+// ================================================================
 function init() {
   const notes = getNotes();
   const state = getUIState();
 
-  // sidebar state
-  if (state.sidebarCollapsed !== false) {
-    document.getElementById("sidebar").classList.add("collapsed");
+  // Restore sidebar
+  if (state.sidebarCollapsed === false) {
+    document.getElementById('sidebar').classList.remove('hidden');
   }
 
-  // open correct note
+  // Open note
   if (state.activeNote && notes[state.activeNote]) {
     openNote(state.activeNote);
-  } else if (Object.keys(notes).length === 0) {
-    createNote("First Note");
-  } else {
+  } else if (Object.keys(notes).length) {
     openNote(Object.keys(notes)[0]);
+  } else {
+    createNote('Untitled');
   }
-
-  loadNotes();
-
-  // restore cursor after render
-  setTimeout(restoreCursor, 0);
 }
 
 init();
 </script>
-
 </body>
 </html>
